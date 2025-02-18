@@ -1,9 +1,9 @@
 # robots_receiver.py
 import time
-import numpy as np
 from multiprocessing import Queue
 from multiprocessing.shared_memory import SharedMemory
 import matplotlib.pyplot as plt
+import numpy as np
 
 def receive_data(queue, shm):
     plt.figure(figsize=(6, 6))
