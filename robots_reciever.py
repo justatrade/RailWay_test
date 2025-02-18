@@ -1,37 +1,52 @@
-# robots_receiver.py
+import json
 import time
 from multiprocessing import Queue
 from multiprocessing.shared_memory import SharedMemory
-import matplotlib.pyplot as plt
+
 import numpy as np
 
-def receive_data(queue, shm):
-    plt.figure(figsize=(6, 6))
-    plt.title("Полученные фигуры")
-    plt.grid(True)
-    plt.axhline(0, color='black', linewidth=0.5)
-    plt.axvline(0, color='black', linewidth=0.5)
-    plt.xlabel("X")
-    plt.ylabel("Y")
+from shape import Square, Triangle, Circle, Parallelogram
 
+# Словарь для сопоставления имён фигур с классами
+SHAPE_CLASSES = {
+    "square": Square,
+    "triangle": Triangle,
+    "circle": Circle,
+    "parallelogram": Parallelogram
+}
+
+def receive_data(queue, shm):
+    print("Receiving data")
     try:
         while True:
+            print("Inside main cycle")
+            time.sleep(0.5)
             if not queue.empty():
+                print("Queue is not empty!!!")
                 size = queue.get()
-                data = bytes(shm.buf[:size])  # Чтение данных из Shared Memory
-                points = np.frombuffer(data, dtype=np.float64).reshape(-1, 2)  # Десериализация данных
-                plt.scatter(points[:, 0], points[:, 1], label=f"Фигура {len(plt.gca().get_legend_handles_labels()[0]) + 1}")
-                plt.legend()
-                plt.pause(0.1)  # Обновление графика
-                print(f"Получены данные: {points.shape[0]} точек")
+                data = bytes(shm.buf[:size]).decode("utf-8")  # Чтение данных из Shared Memory
+                data = json.loads(data)  # Десериализация данных
+
+                # Получение класса фигуры из словаря
+                shape_class = SHAPE_CLASSES.get(data["shape"])
+                if shape_class is None:
+                    print(f"Неизвестный тип фигуры: {data['shape']}")
+                    continue
+
+                # Создание экземпляра фигуры
+                shape = shape_class()
+                shape.points = np.array(data["points"], dtype=np.float64)
+
+                # Отрисовка фигуры
+                shape.plot(filename=f"{data['shape']}_received.png")
+                print(f"Получены данные: {data['shape']}. Точки: {len(shape.points)}")
             else:
                 time.sleep(0.1)  # Ожидание новых данных
     except KeyboardInterrupt:
         print("Завершение работы")
-    finally:
-        plt.show()
 
 if __name__ == "__main__":
+    time.sleep(1)
     shm = SharedMemory(name="robot_memory")
     queue = Queue()
 
