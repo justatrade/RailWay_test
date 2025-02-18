@@ -3,8 +3,8 @@ from abc import ABC, abstractmethod
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 NUM_POINTS = 100
+
 
 class Shape(ABC):
     def __init__(self, name):
@@ -27,7 +27,10 @@ class Shape(ABC):
         print(json.dumps(data, indent=4))
 
     def plot(self, filename=None):
-        plt.figure(figsize=(6, 6))
+        """
+        Отрисовывает фигуру с помощью matplotlib и сохраняет в файл.
+        """
+        plt.figure(figsize=(6, 6))  # Задаём квадратное изображение 6x6 дюймов
         plt.scatter(self.points[:, 0], self.points[:, 1], label=self.name, s=10)  # Уменьшаем размер точек (s=10)
         plt.title(self.name)
         plt.grid(True)
@@ -37,6 +40,7 @@ class Shape(ABC):
         plt.ylabel("Y")
         plt.legend()
 
+        # Устанавливаем одинаковый масштаб по осям X и Y
         plt.gca().set_aspect('equal', adjustable='box')
 
         if filename:
@@ -87,10 +91,12 @@ class Triangle(Shape):
 
         base_points = [(x, -height / 3) for x in
                        np.linspace(-self.side_length / 2, self.side_length / 2, points_per_side)]
+
         right_points = [(x, y) for x, y in zip(
             np.linspace(self.side_length / 2, 0, points_per_side),
             np.linspace(-height / 3, 2 * height / 3, points_per_side)
         )]
+
         left_points = [(x, y) for x, y in zip(
             np.linspace(-self.side_length / 2, 0, points_per_side),
             np.linspace(-height / 3, 2 * height / 3, points_per_side)
@@ -123,16 +129,28 @@ class Parallelogram(Shape):
         self.skew = skew
 
     def generate_reference(self, num_points=NUM_POINTS):
+        # TODO: В идеале, рассчитывать количество точек пропорционально итоговой величине стороны
         points_per_side = num_points // 4
 
-        base_points = [(x, -self.height / 2) for x in np.linspace(-self.base / 2, self.base / 2, points_per_side)]
-        top_points = [(x + self.skew, self.height / 2) for x in
-                      np.linspace(-self.base / 2, self.base / 2, points_per_side)]
-        left_points = [(-self.base / 2 + self.skew * t, y) for t, y in zip(
+        bottom_left = (-self.base - self.skew) / 2
+        bottom_right = (self.base - self.skew) / 2
+        top_left = -(self.base - self.skew) / 2
+        top_right = (self.base + self.skew) / 2
+        base_points = [
+            (x, -self.height / 2) for x in np.linspace(
+                bottom_left, bottom_right, points_per_side
+            )
+        ]
+        top_points = [
+            (x, self.height / 2) for x in np.linspace(
+                top_left, top_right, points_per_side
+            )
+        ]
+        left_points = [(bottom_left + self.skew * t, y) for t, y in zip(
             np.linspace(0, 1, points_per_side),
             np.linspace(-self.height / 2, self.height / 2, points_per_side)
         )]
-        right_points = [(self.base / 2 + self.skew * t, y) for t, y in zip(
+        right_points = [(bottom_right + self.skew * t, y) for t, y in zip(
             np.linspace(0, 1, points_per_side),
             np.linspace(-self.height / 2, self.height / 2, points_per_side)
         )]
