@@ -4,7 +4,6 @@ from multiprocessing import Queue
 from multiprocessing.shared_memory import SharedMemory
 from shape import Square, Triangle, Circle, Parallelogram
 
-
 class Robot(ABC):
     def __init__(self, name, shape):
         self.name = name
@@ -21,9 +20,14 @@ class Robot(ABC):
     def thin_points(self, points, percent=10):
         """
         Прореживает точки на указанный процент.
+        Гарантирует, что останется хотя бы одна точка.
         """
         num_points = len(points)
+        if num_points == 0:
+            return points  # Если точек нет, возвращаем пустой массив
+
         num_to_remove = int(num_points * percent / 100)
+        num_to_remove = min(num_to_remove, num_points - 1)  # Оставляем хотя бы одну точку
         indices_to_remove = np.random.choice(num_points, num_to_remove, replace=False)
         return np.delete(points, indices_to_remove, axis=0)
 
@@ -31,13 +35,20 @@ class Robot(ABC):
         """
         Добавляет шум к точкам.
         """
+        if len(points) == 0:
+            return points  # Если точек нет, возвращаем пустой массив
+
         noise = np.random.normal(0, scale, points.shape)
         return points + noise
 
     def rotate_points(self, points, angle):
         """
         Поворачивает точки на заданный угол (в градусах).
+        Если точек нет, возвращает пустой массив.
         """
+        if len(points) == 0:
+            return points  # Если точек нет, возвращаем пустой массив
+
         theta = np.radians(angle)
         rotation_matrix = np.array([
             [np.cos(theta), -np.sin(theta)],
@@ -49,12 +60,19 @@ class Robot(ABC):
         """
         Смещает точки на заданные значения по осям X и Y.
         """
+        if len(points) == 0:
+            return points  # Если точек нет, возвращаем пустой массив
+
         return points + np.array([shift_x, shift_y])
 
     def send_data(self, queue, shm):
         """
         Отправляет данные через Shared Memory и очередь.
         """
+        if self.points is None or len(self.points) == 0:
+            print(f"{self.name}: Нет данных для отправки")
+            return
+
         data = self.points.tobytes()  # Сериализация данных
         shm.buf[:len(data)] = data  # Запись данных в Shared Memory
         queue.put(len(data))  # Отправка размера данных через очередь
@@ -120,31 +138,3 @@ class Natasha(Robot):
         self.points = self.add_noise(self.points, scale=0.1)
         self.points = self.rotate_points(self.points, angle=np.random.uniform(0, 360))
         self.points = self.shift_points(self.points, shift_x=np.random.uniform(-5, 5), shift_y=np.random.uniform(-5, 5))
-
-
-if __name__ == "__main__":
-    # Создание роботов
-    glasha = Glasha()
-    sasha = Sasha()
-    masha = Masha()
-    natasha = Natasha()
-
-    # Генерация искажённых фигур
-    glasha.generate_distorted_shape()
-    sasha.generate_distorted_shape()
-    masha.generate_distorted_shape()
-    natasha.generate_distorted_shape()
-
-    # Создание Shared Memory и очереди
-    shm = SharedMemory(name="robot_memory", create=True, size=1024)
-    queue = Queue()
-
-    # Отправка данных
-    glasha.send_data(queue, shm)
-    sasha.send_data(queue, shm)
-    masha.send_data(queue, shm)
-    natasha.send_data(queue, shm)
-
-    # Освобождение ресурсов
-    shm.close()
-    shm.unlink()
