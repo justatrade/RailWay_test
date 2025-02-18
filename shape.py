@@ -1,6 +1,7 @@
 import json
 from abc import ABC, abstractmethod
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 NUM_POINTS = 100
@@ -24,6 +25,25 @@ class Shape(ABC):
             "points": self.points.tolist() if isinstance(self.points, np.ndarray) else self.points
         }
         print(json.dumps(data, indent=4))
+
+    def plot(self, filename=None):
+        plt.figure(figsize=(6, 6))
+        plt.scatter(self.points[:, 0], self.points[:, 1], label=self.name, s=10)  # Уменьшаем размер точек (s=10)
+        plt.title(self.name)
+        plt.grid(True)
+        plt.axhline(0, color='black', linewidth=0.5)
+        plt.axvline(0, color='black', linewidth=0.5)
+        plt.xlabel("X")
+        plt.ylabel("Y")
+        plt.legend()
+
+        plt.gca().set_aspect('equal', adjustable='box')
+
+        if filename:
+            plt.savefig(filename, dpi=100)  # Сохраняем с разрешением 100 dpi
+        else:
+            plt.savefig(f"{self.name}.png", dpi=100)  # Сохраняем с разрешением 100 dpi
+        plt.close()
 
 
 class Square(Shape):
@@ -55,6 +75,7 @@ class Square(Shape):
     def save_to_json(self):
         self.print_json()
 
+
 class Triangle(Shape):
     def __init__(self, side_length=10):
         super().__init__("triangle")
@@ -62,16 +83,24 @@ class Triangle(Shape):
 
     def generate_reference(self, num_points=NUM_POINTS):
         points_per_side = num_points // 3
-        side = np.linspace(-self.side_length / 2, self.side_length / 2, points_per_side)
         height = (np.sqrt(3) / 2 * self.side_length)
-        self.points = np.array(
-            [(x, -height / 2) for x in side] +
-            [(self.side_length / 2, y) for y in np.linspace(-height / 2, height, points_per_side)] +
-            [(-self.side_length / 2, y) for y in np.linspace(height, -height / 2, points_per_side)]
-        )
+
+        base_points = [(x, -height / 3) for x in
+                       np.linspace(-self.side_length / 2, self.side_length / 2, points_per_side)]
+        right_points = [(x, y) for x, y in zip(
+            np.linspace(self.side_length / 2, 0, points_per_side),
+            np.linspace(-height / 3, 2 * height / 3, points_per_side)
+        )]
+        left_points = [(x, y) for x, y in zip(
+            np.linspace(-self.side_length / 2, 0, points_per_side),
+            np.linspace(-height / 3, 2 * height / 3, points_per_side)
+        )]
+
+        self.points = np.array(base_points + right_points + left_points)
 
     def save_to_json(self):
         self.print_json()
+
 
 class Circle(Shape):
     def __init__(self, radius=5):
@@ -85,6 +114,7 @@ class Circle(Shape):
     def save_to_json(self):
         self.print_json()
 
+
 class Parallelogram(Shape):
     def __init__(self, base=10, height=5, skew=2):
         super().__init__("parallelogram")
@@ -94,16 +124,24 @@ class Parallelogram(Shape):
 
     def generate_reference(self, num_points=NUM_POINTS):
         points_per_side = num_points // 4
-        base = np.linspace(-self.base / 2, self.base / 2, points_per_side)
-        self.points = np.array(
-            [(x, -self.height / 2) for x in base] +
-            [(x + self.skew, self.height / 2) for x in base[::-1]] +
-            [(-self.base / 2 + self.skew, y) for y in np.linspace(-self.height / 2, self.height / 2, points_per_side)] +
-            [(self.base / 2, y) for y in np.linspace(self.height / 2, -self.height / 2, points_per_side)]
-        )
+
+        base_points = [(x, -self.height / 2) for x in np.linspace(-self.base / 2, self.base / 2, points_per_side)]
+        top_points = [(x + self.skew, self.height / 2) for x in
+                      np.linspace(-self.base / 2, self.base / 2, points_per_side)]
+        left_points = [(-self.base / 2 + self.skew * t, y) for t, y in zip(
+            np.linspace(0, 1, points_per_side),
+            np.linspace(-self.height / 2, self.height / 2, points_per_side)
+        )]
+        right_points = [(self.base / 2 + self.skew * t, y) for t, y in zip(
+            np.linspace(0, 1, points_per_side),
+            np.linspace(-self.height / 2, self.height / 2, points_per_side)
+        )]
+
+        self.points = np.array(base_points + top_points + left_points + right_points)
 
     def save_to_json(self):
         self.print_json()
+
 
 if __name__ == "__main__":
     shapes = [
@@ -116,3 +154,4 @@ if __name__ == "__main__":
     for shape in shapes:
         shape.generate_reference()
         shape.save_to_json()
+        shape.plot()
