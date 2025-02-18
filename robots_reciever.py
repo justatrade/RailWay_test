@@ -1,10 +1,9 @@
-import json
+# robots_receiver.py
 import time
-from multiprocessing import Queue
+from multiprocessing.managers import BaseManager
 from multiprocessing.shared_memory import SharedMemory
-
+import json
 import numpy as np
-
 from shape import Square, Triangle, Circle, Parallelogram
 
 # Словарь для сопоставления имён фигур с классами
@@ -15,8 +14,24 @@ SHAPE_CLASSES = {
     "parallelogram": Parallelogram
 }
 
-def receive_data(queue, shm):
+# Создаём менеджер
+class QueueManager(BaseManager):
+    pass
+
+# Регистрируем очередь
+QueueManager.register('get_queue')
+
+def receive_data():
     print("Receiving data")
+
+    # Подключаемся к серверу менеджера
+    manager = QueueManager(address=('127.0.0.1', 50000), authkey=b'abracadabra')
+    manager.connect()
+    queue = manager.get_queue()
+
+    # Подключаемся к Shared Memory
+    shm = SharedMemory(name="robot_memory")
+
     try:
         while True:
             print("Inside main cycle")
@@ -44,12 +59,9 @@ def receive_data(queue, shm):
                 time.sleep(0.1)  # Ожидание новых данных
     except KeyboardInterrupt:
         print("Завершение работы")
+    finally:
+        shm.close()
 
 if __name__ == "__main__":
     time.sleep(1)
-    shm = SharedMemory(name="robot_memory")
-    queue = Queue()
-
-    receive_data(queue, shm)
-
-    shm.close()
+    receive_data()

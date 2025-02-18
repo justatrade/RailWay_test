@@ -1,3 +1,4 @@
+import json
 from abc import ABC, abstractmethod
 import numpy as np
 from shape import Square, Triangle, Circle, Parallelogram
@@ -53,11 +54,13 @@ class Robot(ABC):
         """
         Отправляет данные через Shared Memory и очередь.
         """
-        print(self.points)
-        data = self.points.tobytes() # Сериализация данных
-        print(data)
-        shm.buf[:len(data)] = data  # Запись данных в Shared Memory
-        queue.put(len(data))  # Отправка размера данных через очередь
+        data = {
+            "shape": self.shape.name,  # Тип фигуры
+            "points": self.points.tolist()  # Точки
+        }
+        serialized_data = json.dumps(data).encode("utf-8")  # Сериализация данных
+        shm.buf[:len(serialized_data)] = serialized_data  # Запись данных в Shared Memory
+        queue.put(len(serialized_data))  # Отправка размера данных через очередь
         print(f"{self.name} отправил данные. Точки: {len(self.points)}")
 
     def receive_data(self, queue, shm):
@@ -65,8 +68,10 @@ class Robot(ABC):
         Получает данные из Shared Memory и очереди.
         """
         size = queue.get()  # Получение размера данных
-        data = bytes(shm.buf[:size])  # Чтение данных из Shared Memory
-        self.points = np.frombuffer(data, dtype=np.float64).reshape(-1, 2)  # Десериализация данных
+        data = bytes(shm.buf[:size]).decode("utf-8")  # Чтение данных из Shared Memory
+        data = json.loads(data)  # Десериализация данных
+        self.shape = globals()[data["shape"]]()  # Создание экземпляра фигуры
+        self.points = np.array(data["points"], dtype=np.float64)  # Десериализация точек
         print(f"{self.name} получил данные. Точки: {len(self.points)}")
 
 
