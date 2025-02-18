@@ -1,6 +1,6 @@
 # robots_sender.py
 import time
-from multiprocessing import Process, Queue
+from multiprocessing import Queue
 from multiprocessing.shared_memory import SharedMemory
 from robots import Glasha, Sasha, Masha, Natasha
 
