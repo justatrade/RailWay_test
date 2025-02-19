@@ -1,7 +1,14 @@
+import json
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton
+import threading
+from multiprocessing import Queue
+from multiprocessing.managers import BaseManager
+from multiprocessing.shared_memory import SharedMemory
+
+import numpy as np
 import pyqtgraph as pg
-from shape import Square, Triangle, Circle, Parallelogram
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton
+from PyQt5.QtCore import QTimer
 
 
 class CommissionApp(QMainWindow):
@@ -40,32 +47,82 @@ class CommissionApp(QMainWindow):
         self.main_layout.addLayout(self.buttons_layout)
 
         self.start_button = QPushButton("Старт")
-        self.start_button.clicked.connect(self.show_figures)  # type: ignore
+        self.start_button.clicked.connect(self.start_process)
         self.buttons_layout.addWidget(self.start_button)
 
         self.stop_button = QPushButton("Стоп")
-        self.stop_button.clicked.connect(self.clear_figures)  # type: ignore
+        self.stop_button.clicked.connect(self.stop_process)
         self.buttons_layout.addWidget(self.stop_button)
 
-        self.shapes = [
-            Square(side_length=20),
-            Triangle(side_length=20),
-            Circle(radius=10),
-            Parallelogram(base=16, height=10, skew=4)
-        ]
+        self.setup_manager()
 
-    def show_figures(self):
-        colors = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (255, 0, 255)]
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_figures)
+        self.timer.start(100)
 
-        for i, (shape, color) in enumerate(zip(self.shapes, colors)):
-            shape.generate_reference()
-            scatter = pg.ScatterPlotItem(shape.points[:, 0], shape.points[:, 1], pen=pg.mkPen(color=color), brush=pg.mkBrush(color), size=2)
-            self.figure_widgets[i].addItem(scatter)
+    def setup_manager(self):
+        self.data_queue = Queue()
+        self.command_queue = Queue()
+
+        BaseManager.register('get_data_queue', callable=lambda: self.data_queue)
+        BaseManager.register('get_command_queue', callable=lambda: self.command_queue)
+
+        self.manager = BaseManager(address=('127.0.0.1', 50000), authkey=b'abracadabra')
+        self.shm = SharedMemory(name="robot_memory", create=True, size=1048576)
+
+        # Запускаем сервер в отдельном потоке
+        self.server_thread = threading.Thread(target=self.start_server)
+        self.server_thread.daemon = True  # Поток завершится при завершении основного потока
+        self.server_thread.start()
+
+    def start_server(self):
+        server = self.manager.get_server()
+        print("Сервер запущен на 127.0.0.1:50000")
+        server.serve_forever()
+
+    def start_process(self):
+        self.clear_figures()
+        self.command_queue.put("start")
+
+    def stop_process(self):
+        self.command_queue.put("stop")
 
     def clear_figures(self):
         for widget in self.figure_widgets:
             widget.clear()
         self.winner_widget.clear()
+
+    def update_figures(self):
+        if not self.data_queue.empty():
+            size = self.data_queue.get()
+            try:
+                # Читаем данные из SharedMemory
+                raw_data = bytes(self.shm.buf[:size]).decode("utf-8")
+                data = json.loads(raw_data)
+
+                shape_name = data["shape"]
+                points = data["points"]
+
+                # Отладочное сообщение
+                print(f"Получены данные: {shape_name}, точек: {len(points)}")
+
+                # Преобразуем points в numpy array
+                points = np.array(points, dtype=np.float64)
+
+                index = {"square": 0, "triangle": 1, "circle": 2, "parallelogram": 3}[shape_name]
+                color = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (255, 0, 255)][index]
+                scatter = pg.ScatterPlotItem(points[:, 0], points[:, 1], pen=pg.mkPen(color=color),
+                                             brush=pg.mkBrush(color), size=2)
+                self.figure_widgets[index].addItem(scatter)
+            except json.JSONDecodeError as e:
+                print(f"Ошибка при десериализации JSON: {e}")
+            except Exception as e:
+                print(f"Неизвестная ошибка: {e}")
+
+    def closeEvent(self, event):
+        self.shm.close()
+        self.shm.unlink()
+        super().closeEvent(event)
 
 
 if __name__ == "__main__":
