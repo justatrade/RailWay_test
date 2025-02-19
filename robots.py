@@ -34,7 +34,7 @@ class Robot(ABC):
 
     def shift_points(self, points, shift_x, shift_y):
         shifted_points = points + np.array([shift_x, shift_y])
-        return np.clip(shifted_points, -100, 100)  # Ограничиваем точки листом 200x200
+        return np.clip(shifted_points, -100, 100)
 
     def send_data(self, queue, shm):
         data = {
@@ -45,14 +45,6 @@ class Robot(ABC):
         shm.buf[:len(serialized_data)] = serialized_data
         queue.put(len(serialized_data))
         print(f"{self.name} отправил данные. Точки: {len(self.points)}")
-
-    def receive_data(self, queue, shm):
-        size = queue.get()
-        data = bytes(shm.buf[:size]).decode("utf-8")
-        data = json.loads(data)
-        self.shape = globals()[data["shape"]]()
-        self.points = np.array(data["points"], dtype=np.float64)
-        print(f"{self.name} получил данные. Точки: {len(self.points)}")
 
 class Glasha(Robot):
     def __init__(self):
@@ -86,7 +78,7 @@ class Masha(Robot):
 
 class Natasha(Robot):
     def __init__(self):
-        super().__init__("Наташа", Parallelogram(base=20, height=10, skew=4))
+        super().__init__("Наташа", Parallelogram(base=16, height=10, skew=4))
 
     def generate_distorted_shape(self):
         self.points = self.thin_points(self.points, percent=10)
