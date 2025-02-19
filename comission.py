@@ -1,14 +1,13 @@
-import json
-import sys
 import threading
-from multiprocessing import Queue
-from multiprocessing.managers import BaseManager
-from multiprocessing.shared_memory import SharedMemory
-
+import sys
+import json
 import numpy as np
-import pyqtgraph as pg
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton
 from PyQt5.QtCore import QTimer
+from multiprocessing.managers import BaseManager
+from multiprocessing.shared_memory import SharedMemory
+from multiprocessing import Lock, Queue
+import pyqtgraph as pg
 
 
 class CommissionApp(QMainWindow):
@@ -58,7 +57,7 @@ class CommissionApp(QMainWindow):
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_figures)
-        self.timer.start(100)
+        self.timer.start(1000)
 
     def setup_manager(self):
         self.data_queue = Queue()
@@ -69,10 +68,10 @@ class CommissionApp(QMainWindow):
 
         self.manager = BaseManager(address=('127.0.0.1', 50000), authkey=b'abracadabra')
         self.shm = SharedMemory(name="robot_memory", create=True, size=1048576)
+        self.lock = Lock()
 
-        # Запускаем сервер в отдельном потоке
         self.server_thread = threading.Thread(target=self.start_server)
-        self.server_thread.daemon = True  # Поток завершится при завершении основного потока
+        self.server_thread.daemon = True
         self.server_thread.start()
 
     def start_server(self):
@@ -96,23 +95,21 @@ class CommissionApp(QMainWindow):
         if not self.data_queue.empty():
             size = self.data_queue.get()
             try:
-                # Читаем данные из SharedMemory
-                raw_data = bytes(self.shm.buf[:size]).decode("utf-8")
-                data = json.loads(raw_data)
+                with self.lock:
+                    raw_data = bytes(self.shm.buf[:size]).decode("utf-8")
+                    print(f"Данные до обработки: {raw_data}")
+                    data = json.loads(raw_data)
 
                 shape_name = data["shape"]
                 points = data["points"]
 
-                # Отладочное сообщение
                 print(f"Получены данные: {shape_name}, точек: {len(points)}")
 
-                # Преобразуем points в numpy array
                 points = np.array(points, dtype=np.float64)
 
                 index = {"square": 0, "triangle": 1, "circle": 2, "parallelogram": 3}[shape_name]
                 color = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (255, 0, 255)][index]
-                scatter = pg.ScatterPlotItem(points[:, 0], points[:, 1], pen=pg.mkPen(color=color),
-                                             brush=pg.mkBrush(color), size=2)
+                scatter = pg.ScatterPlotItem(points[:, 0], points[:, 1], pen=pg.mkPen(color=color), brush=pg.mkBrush(color), size=2)
                 self.figure_widgets[index].addItem(scatter)
             except json.JSONDecodeError as e:
                 print(f"Ошибка при десериализации JSON: {e}")
