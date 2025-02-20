@@ -1,4 +1,3 @@
-import threading
 import sys
 import json
 import numpy as np
@@ -6,8 +5,8 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
 from PyQt5.QtCore import QTimer
 from multiprocessing.managers import BaseManager
 from multiprocessing.shared_memory import SharedMemory
-from multiprocessing import Lock, Queue
 import pyqtgraph as pg
+from shape import Square, Triangle, Circle, Parallelogram
 
 
 class CommissionApp(QMainWindow):
@@ -57,9 +56,10 @@ class CommissionApp(QMainWindow):
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_figures)
-        self.timer.start(1000)
+        self.timer.start(100)
 
     def setup_manager(self):
+        from multiprocessing import Queue
         self.data_queue = Queue()
         self.command_queue = Queue()
 
@@ -68,7 +68,6 @@ class CommissionApp(QMainWindow):
 
         self.manager = BaseManager(address=('127.0.0.1', 50000), authkey=b'abracadabra')
         self.shm = SharedMemory(name="robot_memory", create=True, size=1048576)
-        self.lock = Lock()
 
         self.server_thread = threading.Thread(target=self.start_server)
         self.server_thread.daemon = True
@@ -95,10 +94,8 @@ class CommissionApp(QMainWindow):
         if not self.data_queue.empty():
             size = self.data_queue.get()
             try:
-                with self.lock:
-                    raw_data = bytes(self.shm.buf[:size]).decode("utf-8")
-                    print(f"Данные до обработки: {raw_data}")
-                    data = json.loads(raw_data)
+                raw_data = bytes(self.shm.buf[:size]).decode("utf-8")
+                data = json.loads(raw_data)
 
                 shape_name = data["shape"]
                 points = data["points"]
@@ -115,6 +112,9 @@ class CommissionApp(QMainWindow):
                 print(f"Ошибка при десериализации JSON: {e}")
             except Exception as e:
                 print(f"Неизвестная ошибка: {e}")
+
+            # Отправляем команду "next" для подтверждения
+            self.command_queue.put("next")
 
     def closeEvent(self, event):
         self.shm.close()
