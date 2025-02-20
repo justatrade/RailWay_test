@@ -3,10 +3,10 @@ import time
 import numpy as np
 from multiprocessing.managers import BaseManager
 from multiprocessing.shared_memory import SharedMemory
-from multiprocessing import Lock
 from shape import Square, Triangle, Circle, Parallelogram
 
-GENERATION_INTERVAL = 5
+GENERATION_INTERVAL = 2
+
 
 class Robot:
     def __init__(self, name, shape):
@@ -23,7 +23,8 @@ class Robot:
         self.points = self.thin_points(self.points, percent=10)
         self.points = self.add_noise(self.points, scale=0.3)
         self.points = self.rotate_points(self.points, angle=np.random.uniform(0, 360))
-        self.points = self.shift_points(self.points, shift_x=np.random.uniform(-50, 50), shift_y=np.random.uniform(-50, 50))
+        self.points = self.shift_points(self.points, shift_x=np.random.uniform(-50, 50),
+                                        shift_y=np.random.uniform(-50, 50))
 
     def thin_points(self, points, percent=10):
         num_points = len(points)
@@ -47,15 +48,15 @@ class Robot:
         shifted_points = points + np.array([shift_x, shift_y])
         return np.clip(shifted_points, -100, 100)
 
-    def send_data(self, queue, shm, lock):
+    def send_data(self, queue, shm):
         data = {
             "shape": self.shape.name,
             "points": self.points.tolist()
         }
         serialized_data = json.dumps(data).encode("utf-8")
-        with lock:
-            shm.buf[:len(serialized_data)] = serialized_data
+        shm.buf[:len(serialized_data)] = serialized_data
         queue.put(len(serialized_data))
+
 
 class Robots:
     def __init__(self):
@@ -78,7 +79,6 @@ class Robots:
                 self.data_queue = manager.get_data_queue()
                 self.command_queue = manager.get_command_queue()
                 self.shm = SharedMemory(name="robot_memory")
-                self.lock = Lock()
                 break
             except (ConnectionRefusedError, FileNotFoundError):
                 print("Ожидание подключения к серверу...")
@@ -98,32 +98,48 @@ class Robots:
                         self.is_running = False
 
                 if self.is_running:
-                    print(self.robots)
                     for robot in self.robots:
                         robot.generate_distorted_shape()
-                        robot.send_data(self.data_queue, self.shm, self.lock)
-                        time.sleep(1)
+                        robot.send_data(self.data_queue, self.shm)
+
+                        # Ждём команду "next" от Comission
+                        while True:
+                            if not self.command_queue.empty():
+                                command = self.command_queue.get()
+                                if command == "next":
+                                    break  # Продолжаем отправку данных
+                                elif command == "stop":
+                                    self.is_running = False
+                                    break
+                            time.sleep(0.1)
+
+                    # Пауза между итерациями
                     time.sleep(GENERATION_INTERVAL)
         except KeyboardInterrupt:
             print("Завершение работы Robots...")
         finally:
             self.shm.close()
 
+
 class Glasha(Robot):
     def __init__(self):
         super().__init__("Глаша", Square(side_length=20))
+
 
 class Sasha(Robot):
     def __init__(self):
         super().__init__("Саша", Triangle(side_length=20))
 
+
 class Masha(Robot):
     def __init__(self):
         super().__init__("Маша", Circle(radius=10))
 
+
 class Natasha(Robot):
     def __init__(self):
         super().__init__("Наташа", Parallelogram(base=16, height=10, skew=4))
+
 
 if __name__ == "__main__":
     robots = Robots()
