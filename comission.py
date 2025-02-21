@@ -3,10 +3,10 @@ import json
 import numpy as np
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton
 from PyQt5.QtCore import QTimer
+import threading
 from multiprocessing.managers import BaseManager
 from multiprocessing.shared_memory import SharedMemory
 import pyqtgraph as pg
-from shape import Square, Triangle, Circle, Parallelogram
 
 
 class CommissionApp(QMainWindow):
