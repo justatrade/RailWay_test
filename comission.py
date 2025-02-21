@@ -1,12 +1,71 @@
 import sys
 import json
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton
+from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLabel
 from PyQt5.QtCore import QTimer
-import threading
 from multiprocessing.managers import BaseManager
 from multiprocessing.shared_memory import SharedMemory
 import pyqtgraph as pg
+from sklearn.decomposition import PCA
+from scipy.spatial.distance import cdist
+
+
+class ShapeNormalizer:
+    @staticmethod
+    def align_centers(original_points, distorted_points):
+        """Выравнивает центры масс искажённой фигуры относительно оригинальной."""
+        original_center = np.mean(original_points, axis=0)
+        distorted_center = np.mean(distorted_points, axis=0)
+        return distorted_points - distorted_center + original_center
+
+    @staticmethod
+    def find_rotation_angle(original_points, distorted_points):
+        """Определяет угол поворота искажённой фигуры относительно оригинальной."""
+        pca_original = PCA(n_components=2).fit(original_points)
+        pca_distorted = PCA(n_components=2).fit(distorted_points)
+        angle = np.arctan2(pca_distorted.components_[0, 1], pca_distorted.components_[0, 0]) - \
+                np.arctan2(pca_original.components_[0, 1], pca_original.components_[0, 0])
+        return np.degrees(angle)
+
+    @staticmethod
+    def rotate_points(points, angle):
+        """Поворачивает точки на заданный угол."""
+        theta = np.radians(angle)
+        rotation_matrix = np.array([
+            [np.cos(theta), -np.sin(theta)],
+            [np.sin(theta), np.cos(theta)]
+        ])
+        return np.dot(points, rotation_matrix.T)
+
+    def normalize(self, original_points, distorted_points):
+        """Нормализует искажённую фигуру (выравнивание и поворот)."""
+        aligned_points = self.align_centers(original_points, distorted_points)
+        if original_points.shape[0] > 0 and not np.allclose(original_points, original_points[0]):
+            angle = self.find_rotation_angle(original_points, aligned_points)
+            rotated_points = self.rotate_points(aligned_points, -angle)
+            return rotated_points
+        return aligned_points
+
+
+class ShapeComparator:
+    @staticmethod
+    def find_closest_points(original_points, distorted_points):
+        """Находит ближайшие точки между двумя наборами."""
+        distances = cdist(original_points, distorted_points)
+        closest_indices = np.argmin(distances, axis=0)
+        return original_points[closest_indices]
+
+    @staticmethod
+    def calculate_mse(original_points, distorted_points):
+        """Вычисляет среднеквадратичную ошибку (MSE)."""
+        closest_points = ShapeComparator.find_closest_points(original_points, distorted_points)
+        squared_errors = np.sum((closest_points - distorted_points) ** 2, axis=1)
+        return np.mean(squared_errors)
+
+    def compare(self, original_points, distorted_points):
+        """Сравнивает две фигуры и возвращает MSE."""
+        normalized_points = ShapeNormalizer().normalize(original_points, distorted_points)
+        return self.calculate_mse(original_points, normalized_points)
 
 
 class CommissionApp(QMainWindow):
@@ -23,6 +82,7 @@ class CommissionApp(QMainWindow):
         self.main_layout.addLayout(self.graphs_layout)
 
         self.figure_widgets = []
+        self.metric_labels = []
         for _ in range(4):
             plot_widget = pg.PlotWidget()
             plot_widget.setAspectLocked(True)
@@ -32,6 +92,10 @@ class CommissionApp(QMainWindow):
             plot_widget.showGrid(x=True, y=True)
             self.figure_widgets.append(plot_widget)
             self.graphs_layout.addWidget(plot_widget)
+
+            metric_label = QLabel("MSE: -")
+            self.metric_labels.append(metric_label)
+            self.graphs_layout.addWidget(metric_label)
 
         self.winner_widget = pg.PlotWidget()
         self.winner_widget.setAspectLocked(True)
@@ -106,20 +170,34 @@ class CommissionApp(QMainWindow):
 
                 index = {"square": 0, "triangle": 1, "circle": 2, "parallelogram": 3}[shape_name]
                 color = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (255, 0, 255)][index]
-                scatter = pg.ScatterPlotItem(points[:, 0], points[:, 1], pen=pg.mkPen(color=color), brush=pg.mkBrush(color), size=2)
-                self.figure_widgets[index].addItem(scatter)
-            except json.JSONDecodeError as e:
-                print(f"Ошибка при десериализации JSON: {e}")
+
+                # Отрисовка оригинальной фигуры
+                original_shape = self.get_original_shape(shape_name)
+                self.figure_widgets[index].clear()
+                self.figure_widgets[index].plot(original_shape[:, 0], original_shape[:, 1], pen=None, symbol='o', symbolBrush=color, name="Оригинал")
+
+                # Отрисовка искажённой фигуры
+                self.figure_widgets[index].plot(points[:, 0], points[:, 1], pen=None, symbol='x', symbolBrush=color, name="Робот")
+
+                # Вычисление MSE
+                mse = ShapeComparator().compare(original_shape, points)
+                self.metric_labels[index].setText(f"MSE: {mse:.2f}")
+
             except Exception as e:
-                print(f"Неизвестная ошибка: {e}")
+                print(f"Ошибка при обработке данных: {e}")
 
-            # Отправляем команду "next" для подтверждения
-            self.command_queue.put("next")
-
-    def closeEvent(self, event):
-        self.shm.close()
-        self.shm.unlink()
-        super().closeEvent(event)
+    def     get_original_shape(self, shape_name):
+        """Возвращает оригинальную фигуру по её имени."""
+        if shape_name == "square":
+            return np.array([(x, y) for x in np.linspace(-10, 10, 250) for y in np.linspace(-10, 10, 250)])
+        elif shape_name == "triangle":
+            return np.array([(x, y) for x in np.linspace(-10, 10, 250) for y in np.linspace(-10, 10, 250) if y <= x + 10 and y <= -x + 10])
+        elif shape_name == "circle":
+            angles = np.linspace(0, 2 * np.pi, 1000)
+            return np.array([(10 * np.cos(angle), 10 * np.sin(angle)) for angle in angles])
+        elif shape_name == "parallelogram":
+            return np.array([(x, y) for x in np.linspace(-10, 10, 250) for y in np.linspace(-10, 10, 250) if y <= x + 10 and y >= x - 10])
+        return np.array([])
 
 
 if __name__ == "__main__":
