@@ -79,12 +79,19 @@ class CommissionApp(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
 
+        # Создаём контейнер для графиков
         self.graphs_layout = QHBoxLayout()
         self.main_layout.addLayout(self.graphs_layout)
 
         self.figure_widgets = []
         self.metric_labels = []
-        for _ in range(4):
+        self.shape_names = ["Квадрат", "Треугольник", "Круг", "Параллелограмм"]
+
+        for i in range(4):
+            # Контейнер для графика и метки
+            container = QVBoxLayout()
+
+            # Виджет для графика
             plot_widget = pg.PlotWidget()
             plot_widget.setAspectLocked(True)
             plot_widget.setBackground('w')
@@ -92,13 +99,18 @@ class CommissionApp(QMainWindow):
             plot_widget.setYRange(-15, 15)
             plot_widget.showGrid(x=True, y=True)
             self.figure_widgets.append(plot_widget)
-            self.graphs_layout.addWidget(plot_widget)
+            container.addWidget(plot_widget)
 
-            metric_label = QLabel("MSE: -")
-            metric_label.setAlignment(Qt.AlignBottom)
+            # Метка с названием фигуры и MSE
+            metric_label = QLabel(f"{self.shape_names[i]}\nMSE: -")
+            metric_label.setAlignment(Qt.AlignCenter)  # Выравнивание по центру
             self.metric_labels.append(metric_label)
-            self.graphs_layout.addWidget(metric_label)
+            container.addWidget(metric_label)
 
+            # Добавляем контейнер в общий layout
+            self.graphs_layout.addLayout(container)
+
+        # Виджет для победителя
         self.winner_widget = pg.PlotWidget()
         self.winner_widget.setAspectLocked(True)
         self.winner_widget.setBackground('w')
@@ -107,6 +119,7 @@ class CommissionApp(QMainWindow):
         self.winner_widget.showGrid(x=True, y=True)
         self.main_layout.addWidget(self.winner_widget)
 
+        # Кнопки управления
         self.buttons_layout = QHBoxLayout()
         self.main_layout.addLayout(self.buttons_layout)
 
@@ -122,7 +135,7 @@ class CommissionApp(QMainWindow):
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_figures)
-        self.timer.start(100)
+        self.timer.start(1)
 
     def setup_manager(self):
         from multiprocessing import Queue
@@ -175,7 +188,7 @@ class CommissionApp(QMainWindow):
 
                 # Получаем оригинальную фигуру
                 original_shape = self.get_original_shape(shape_name)
-                original_shape.generate_reference()
+                original_shape.generate_reference()  # Генерация точек
                 original_points = original_shape.points
 
                 # Отрисовка оригинальной фигуры
@@ -187,12 +200,12 @@ class CommissionApp(QMainWindow):
 
                 # Вычисление MSE
                 mse = ShapeComparator().compare(original_points, points)
-                self.metric_labels[index].setText(f"MSE: {mse:.2f}")
+                self.metric_labels[index].setText(f"{self.shape_names[index]}\nMSE: {mse:.4f}")
 
             except Exception as e:
                 print(f"Ошибка при обработке данных: {e}")
-
-            self.command_queue.put("next")
+            else:
+                self.command_queue.put("next")
 
     def get_original_shape(self, shape_name):
         """Возвращает оригинальную фигуру по её имени."""
