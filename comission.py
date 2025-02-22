@@ -98,6 +98,7 @@ class CommissionApp(QMainWindow):
             plot_widget.setXRange(-15, 15)
             plot_widget.setYRange(-15, 15)
             plot_widget.showGrid(x=True, y=True)
+            plot_widget.enableAutoRange()  # Включаем автомасштабирование
             self.figure_widgets.append(plot_widget)
             container.addWidget(plot_widget)
 
@@ -110,14 +111,22 @@ class CommissionApp(QMainWindow):
             # Добавляем контейнер в общий layout
             self.graphs_layout.addLayout(container)
 
-        # Виджет для победителя
-        self.winner_widget = pg.PlotWidget()
-        self.winner_widget.setAspectLocked(True)
-        self.winner_widget.setBackground('w')
-        self.winner_widget.setXRange(-15, 15)
-        self.winner_widget.setYRange(-15, 15)
-        self.winner_widget.showGrid(x=True, y=True)
-        self.main_layout.addWidget(self.winner_widget)
+        # Контейнер для победителя
+        self.winner_container = QVBoxLayout()
+        self.winner_plot_widget = pg.PlotWidget()
+        self.winner_plot_widget.setAspectLocked(True)
+        self.winner_plot_widget.setBackground('w')
+        self.winner_plot_widget.setXRange(-15, 15)
+        self.winner_plot_widget.setYRange(-15, 15)
+        self.winner_plot_widget.showGrid(x=True, y=True)
+        self.winner_plot_widget.enableAutoRange()  # Включаем автомасштабирование
+        self.winner_container.addWidget(self.winner_plot_widget)
+
+        self.winner_metric_label = QLabel("Победитель: -\nMSE: -")
+        self.winner_metric_label.setAlignment(Qt.AlignCenter)
+        self.winner_container.addWidget(self.winner_metric_label)
+
+        self.main_layout.addLayout(self.winner_container)
 
         # Кнопки управления
         self.buttons_layout = QHBoxLayout()
@@ -135,7 +144,7 @@ class CommissionApp(QMainWindow):
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_figures)
-        self.timer.start(1)
+        self.timer.start(100)
 
     def setup_manager(self):
         from multiprocessing import Queue
@@ -167,7 +176,7 @@ class CommissionApp(QMainWindow):
     def clear_figures(self):
         for widget in self.figure_widgets:
             widget.clear()
-        self.winner_widget.clear()
+        self.winner_plot_widget.clear()
 
     def update_figures(self):
         if not self.data_queue.empty():
@@ -202,10 +211,28 @@ class CommissionApp(QMainWindow):
                 mse = ShapeComparator().compare(original_points, points)
                 self.metric_labels[index].setText(f"{self.shape_names[index]}\nMSE: {mse:.4f}")
 
+                # Обновляем победителя
+                self.update_winner(shape_name, original_points, points, mse)
+
             except Exception as e:
                 print(f"Ошибка при обработке данных: {e}")
             else:
+                # Отправляем команду "next" для следующей фигуры
                 self.command_queue.put("next")
+
+    def update_winner(self, shape_name, original_points, distorted_points, mse):
+        """Обновляет виджет победителя."""
+        # Очищаем текущий график
+        self.winner_plot_widget.clear()
+
+        # Отрисовываем оригинальную фигуру
+        self.winner_plot_widget.plot(original_points[:, 0], original_points[:, 1], pen=None, symbol='o', symbolBrush=(0, 0, 0), name="Оригинал")
+
+        # Отрисовываем искажённую фигуру
+        self.winner_plot_widget.plot(distorted_points[:, 0], distorted_points[:, 1], pen=None, symbol='x', symbolBrush=(255, 0, 0), name="Робот")
+
+        # Обновляем метку
+        self.winner_metric_label.setText(f"Победитель: {shape_name}\nMSE: {mse:.4f}")
 
     def get_original_shape(self, shape_name):
         """Возвращает оригинальную фигуру по её имени."""
