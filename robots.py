@@ -115,7 +115,7 @@ class Robots:
 
                     # Пауза между итерациями
                     time.sleep(GENERATION_INTERVAL)
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, OSError):
             print("Завершение работы Robots...")
         finally:
             self.shm.close()
