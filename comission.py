@@ -9,6 +9,8 @@ from multiprocessing.managers import BaseManager
 from multiprocessing.shared_memory import SharedMemory
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLabel
+from scipy.optimize import minimize
+from scipy.signal import medfilt
 from scipy.spatial.distance import cdist
 from shape import Square, Triangle, Circle, Parallelogram
 from sklearn.decomposition import PCA
@@ -26,6 +28,19 @@ class ShapeNormalizer:
         return distorted_points - distorted_center
 
     @staticmethod
+    def smooth_points(points, kernel_size=3):
+        """
+        Применяет медианный фильтр для сглаживания шума в наборе точек.
+        :param points: Массив точек
+        :param kernel_size: Размер окна фильтрации
+        :return: Сглаженные точки
+        """
+        smoothed_points = np.copy(points)
+        smoothed_points[:, 0] = medfilt(points[:, 0], kernel_size)  # Фильтруем по оси X
+        smoothed_points[:, 1] = medfilt(points[:, 1], kernel_size)  # Фильтруем по оси Y
+        return smoothed_points
+
+    @staticmethod
     def find_rotation_angle(original_points, distorted_points):
         """
         Определяет угол поворота искажённой фигуры относительно оригинальной.
@@ -38,6 +53,21 @@ class ShapeNormalizer:
         angle = np.arctan2(pca_distorted.components_[0, 1], pca_distorted.components_[0, 0]) - \
                 np.arctan2(pca_original.components_[0, 1], pca_original.components_[0, 0])
         return np.degrees(angle)
+
+    def gradient_descent_optimization(self, original_points, distorted_points, initial_angle):
+        """
+        Оптимизация угла с помощью градиентного спуска для минимизации MSE.
+        :param original_points: Оригинальные точки
+        :param distorted_points: Искажённые точки
+        :param initial_angle: Начальный угол, полученный через PCA
+        :return: Оптимизированный угол
+        """
+        def mse(angle):
+            rotated_points = self.rotate_points(distorted_points, angle)
+            return np.mean((original_points - rotated_points) ** 2)
+
+        result = minimize(mse, initial_angle, method="BFGS", options={"disp": False, "maxiter": 10})
+        return result.x[0] if result.success else initial_angle
 
     @staticmethod
     def rotate_points(points, angle):
@@ -62,11 +92,20 @@ class ShapeNormalizer:
         :return:
         """
         aligned_points = self.align_centers(distorted_points)
-        if original_points.shape[0] > 0 and not np.allclose(original_points, original_points[0]):
-            angle = self.find_rotation_angle(original_points, aligned_points)
-            rotated_points = self.rotate_points(aligned_points, -angle)
-            return rotated_points
-        return aligned_points
+
+        # Применяем сглаживание перед PCA
+        smoothed_points = self.smooth_points(aligned_points)
+
+        # Если точки на фигуре присутствуют, находим угол
+        initial_angle = self.find_rotation_angle(original_points, smoothed_points)
+
+        # Оптимизация угла с помощью градиентного спуска
+        optimized_angle = self.gradient_descent_optimization(original_points, smoothed_points, initial_angle)
+
+        # Поворот точек с использованием оптимизированного угла
+        rotated_points = self.rotate_points(smoothed_points, -optimized_angle)
+
+        return rotated_points
 
 
 class ShapeComparator:
@@ -224,21 +263,26 @@ class CommissionApp(QMainWindow):
                 index = {"square": 0, "triangle": 1, "circle": 2, "parallelogram": 3}[shape_name]
                 color = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (255, 0, 255)][index]
 
-                # Получаем оригинальную фигуру
+                # Отрисовка и инициализация фигуры
                 original_shape = self.get_original_shape(shape_name)
                 original_shape.generate_reference()  # Генерация точек
                 original_points = original_shape.points
 
+                # Нормализация и сглаживание точек
                 normalized_points = ShapeNormalizer().normalize(original_points, points)
 
                 # Отрисовка оригинальной фигуры
                 self.figure_widgets[index].clear()
-                self.figure_widgets[index].plot(original_points[:, 0], original_points[:, 1], pen=None, symbol='o', symbolBrush=color, name="Оригинал")
+                self.figure_widgets[index].plot(original_points[:, 0], original_points[:, 1], pen=None, symbol='o',
+                                                symbolBrush=color, name="Оригинал")
 
                 # Отрисовка искажённой фигуры
-                self.figure_widgets[index].plot(points[:, 0], points[:, 1], pen=None, symbol='p', symbolBrush=color, name="Робот")
+                self.figure_widgets[index].plot(points[:, 0], points[:, 1], pen=None, symbol='p', symbolBrush=color,
+                                                name="Робот")
 
-                self.figure_widgets[index].plot(normalized_points[:, 0], normalized_points[:, 1], pen=None, symbol="x", symbolBrush=color, name="Нормированный")
+                # Отрисовка нормализованной фигуры
+                self.figure_widgets[index].plot(normalized_points[:, 0], normalized_points[:, 1], pen=None, symbol="x",
+                                                symbolBrush=color, name="Нормированный")
 
                 # Вычисление MSE
                 mse = ShapeComparator().compare(original_points, points)
