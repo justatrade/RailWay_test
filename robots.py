@@ -24,7 +24,7 @@ class Robot:
         self.points = self.add_noise(self.points, scale=0.3)
         self.points = self.rotate_points(self.points, angle=np.random.uniform(0, 360))
         self.points = self.shift_points(self.points, shift_x=np.random.uniform(-50, 50),
-                                        shift_y=np.random.uniform(-50, 50))
+                                       shift_y=np.random.uniform(-50, 50))
 
     def thin_points(self, points, percent=10):
         num_points = len(points)
@@ -111,7 +111,7 @@ class Robots:
                                 elif command == "stop":
                                     self.is_running = False
                                     break
-                            time.sleep(0.1)
+                            time.sleep(0.01)
 
                     # Пауза между итерациями
                     time.sleep(GENERATION_INTERVAL)
