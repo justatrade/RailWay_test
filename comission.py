@@ -1,7 +1,7 @@
 import json
 import sys
-import time
 import threading
+import time
 from multiprocessing import Queue
 from multiprocessing.managers import BaseManager
 from multiprocessing.shared_memory import SharedMemory
@@ -9,9 +9,16 @@ from multiprocessing.shared_memory import SharedMemory
 import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
-                             QPushButton, QVBoxLayout, QWidget)
-from scipy.spatial.distance import cdist
+from PyQt5.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+from sklearn.neighbors import NearestNeighbors
 
 from shape import Circle, Parallelogram, Square, Triangle
 
@@ -20,31 +27,37 @@ class ShapeComparator:
     @staticmethod
     def find_closest_points(original_points, distorted_points):
         """
-        Находит ближайшие точки между двумя наборами.
-        :param original_points:
-        :param distorted_points:
-        :return:
+        Находит ближайшие точки между двумя наборами с использованием NearestNeighbors.
+        :param original_points: Оригинальные точки (N x 2).
+        :param distorted_points: Искажённые точки (M x 2).
+        :return: Ближайшие точки из оригинального набора.
         """
-        distances = cdist(original_points, distorted_points)
-        closest_indices = np.argmin(distances, axis=0)
-        return original_points[closest_indices]
+        nbrs = NearestNeighbors(n_neighbors=1, algorithm="auto").fit(original_points)
+
+        _, indices = nbrs.kneighbors(distorted_points)
+
+        return original_points[indices.flatten()]
 
     @staticmethod
     def calculate_mse(original_points, distorted_points):
         """
         Вычисляет среднеквадратичную ошибку (MSE).
-        :param original_points:
-        :param distorted_points:
-        :return:
+        :param original_points: Оригинальные точки (N x 2).
+        :param distorted_points: Искажённые точки (M x 2).
+        :return: Среднеквадратичная ошибка.
         """
-        closest_points = ShapeComparator.find_closest_points(original_points, distorted_points)
+        closest_points = ShapeComparator.find_closest_points(
+            original_points, distorted_points
+        )
         squared_errors = np.sum((closest_points - distorted_points) ** 2, axis=1)
         return np.mean(squared_errors)
 
 
 class ICP:
     @staticmethod
-    def icp_align(original_points, distorted_points, max_iterations=50, mse_threshold=0.10):
+    def icp_align(
+        original_points, distorted_points, max_iterations=50, mse_threshold=0.10
+    ):
         """
         Выравнивает искажённые точки относительно оригинальных с использованием ICP.
         :param original_points: Оригинальные точки (N x 2).
@@ -57,7 +70,9 @@ class ICP:
         aligned_points = distorted_points.copy()
 
         for iteration in range(max_iterations):
-            closest_points = ShapeComparator.find_closest_points(original_points, aligned_points)
+            closest_points = ShapeComparator.find_closest_points(
+                original_points, aligned_points
+            )
 
             mse = ShapeComparator.calculate_mse(original_points, aligned_points)
 
@@ -112,7 +127,7 @@ class CommissionApp(QMainWindow):
 
             plot_widget = pg.PlotWidget()
             plot_widget.setAspectLocked(True)
-            plot_widget.setBackground('w')
+            plot_widget.setBackground("w")
             plot_widget.setXRange(-15, 15)
             plot_widget.setYRange(-15, 15)
             plot_widget.showGrid(x=True, y=True)
@@ -130,7 +145,7 @@ class CommissionApp(QMainWindow):
         self.winner_container = QVBoxLayout()
         self.winner_plot_widget = pg.PlotWidget()
         self.winner_plot_widget.setAspectLocked(True)
-        self.winner_plot_widget.setBackground('w')
+        self.winner_plot_widget.setBackground("w")
         self.winner_plot_widget.setXRange(-15, 15)
         self.winner_plot_widget.setYRange(-15, 15)
         self.winner_plot_widget.showGrid(x=True, y=True)
@@ -161,10 +176,10 @@ class CommissionApp(QMainWindow):
         self.timer.start(1)
 
     def setup_manager(self):
-        BaseManager.register('get_data_queue', callable=lambda: self.data_queue)
-        BaseManager.register('get_command_queue', callable=lambda: self.command_queue)
+        BaseManager.register("get_data_queue", callable=lambda: self.data_queue)
+        BaseManager.register("get_command_queue", callable=lambda: self.command_queue)
 
-        self.manager = BaseManager(address=('127.0.0.1', 50000), authkey=b'abracadabra')
+        self.manager = BaseManager(address=("127.0.0.1", 50000), authkey=b"abracadabra")
         self.shm = SharedMemory(name="robot_memory", create=True, size=1048576)
 
         self.server_thread = threading.Thread(target=self.start_server)
@@ -201,7 +216,9 @@ class CommissionApp(QMainWindow):
 
                 points = np.array(points, dtype=np.float64)
 
-                index = {"square": 0, "triangle": 1, "circle": 2, "parallelogram": 3}[shape_name]
+                index = {"square": 0, "triangle": 1, "circle": 2, "parallelogram": 3}[
+                    shape_name
+                ]
 
                 original_shape = self.get_original_shape(shape_name)
                 original_shape.generate_reference()
@@ -214,30 +231,32 @@ class CommissionApp(QMainWindow):
                     original_points[:, 0],
                     original_points[:, 1],
                     pen=None,
-                    symbol='o',
+                    symbol="o",
                     symbolBrush=(0, 0, 255),
-                    name="Оригинал"
+                    name="Оригинал",
                 )
 
                 self.figure_widgets[index].plot(
                     points[:, 0],
                     points[:, 1],
                     pen=None,
-                    symbol='x',
+                    symbol="x",
                     symbolBrush=(255, 0, 0),
-                    name="Искажённые"
+                    name="Искажённые",
                 )
 
                 self.figure_widgets[index].plot(
                     aligned_points[:, 0],
                     aligned_points[:, 1],
                     pen=None,
-                    symbol='+',
+                    symbol="+",
                     symbolBrush=(0, 255, 0),
-                    name="Нормализованные"
+                    name="Нормализованные",
                 )
 
-                self.metric_labels[index].setText(f"{self.shape_names[index]}\nMSE: {mse:.4f}")
+                self.metric_labels[index].setText(
+                    f"{self.shape_names[index]}\nMSE: {mse:.4f}"
+                )
                 self.current_results[shape_name] = {
                     "original_points": original_points,
                     "distorted_points": points,
@@ -245,9 +264,15 @@ class CommissionApp(QMainWindow):
                     "mse": mse,
                 }
                 f_time = time.time() - st_time
-                print(f"{shape_name.capitalize()} processed in: {f_time}s. {'!!!' if f_time > 0.5 else ''}")
+                print(
+                    f"{shape_name.capitalize()} processed in: {f_time:.4f}s.{'!!!' if f_time > 0.2 else ''} "
+                    f"with MSE: {mse:.4f}"
+                )
                 if len(self.current_results) == 4:
-                    winner_shape = min(self.current_results.keys(), key=lambda x: self.current_results[x]["mse"])
+                    winner_shape = min(
+                        self.current_results.keys(),
+                        key=lambda x: self.current_results[x]["mse"],
+                    )
                     winner_data = self.current_results[winner_shape]
                     self.update_winner(
                         winner_shape,
@@ -277,27 +302,27 @@ class CommissionApp(QMainWindow):
             original_points[:, 0],
             original_points[:, 1],
             pen=None,
-            symbol='o',
+            symbol="o",
             symbolBrush=(0, 0, 255),
-            name="Оригинал"
+            name="Оригинал",
         )
 
         self.winner_plot_widget.plot(
             distorted_points[:, 0],
             distorted_points[:, 1],
             pen=None,
-            symbol='x',
+            symbol="x",
             symbolBrush=(255, 0, 0),
-            name="Искажённые"
+            name="Искажённые",
         )
 
         self.winner_plot_widget.plot(
             aligned_points[:, 0],
             aligned_points[:, 1],
             pen=None,
-            symbol='+',
+            symbol="+",
             symbolBrush=(0, 255, 0),
-            name="Нормализованные"
+            name="Нормализованные",
         )
         self.winner_metric_label.setText(f"Победитель: {shape_name}\nMSE: {mse:.4f}")
 

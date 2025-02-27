@@ -28,7 +28,7 @@ class Robot:
         self.points = self.shift_points(
             self.points,
             shift_x=np.random.uniform(-50, 50),
-            shift_y=np.random.uniform(-50, 50)
+            shift_y=np.random.uniform(-50, 50),
         )
 
     @staticmethod
@@ -46,10 +46,9 @@ class Robot:
     @staticmethod
     def rotate_points(points, angle):
         theta = np.radians(angle)
-        rotation_matrix = np.array([
-            [np.cos(theta), -np.sin(theta)],
-            [np.sin(theta), np.cos(theta)]
-        ])
+        rotation_matrix = np.array(
+            [[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]
+        )
         return np.dot(points, rotation_matrix.T)
 
     @staticmethod
@@ -58,12 +57,9 @@ class Robot:
         return np.clip(shifted_points, -100, 100)
 
     def send_data(self, queue, shm):
-        data = {
-            "shape": self.shape.name,
-            "points": self.points.tolist()
-        }
+        data = {"shape": self.shape.name, "points": self.points.tolist()}
         serialized_data = json.dumps(data).encode("utf-8")
-        shm.buf[:len(serialized_data)] = serialized_data
+        shm.buf[: len(serialized_data)] = serialized_data
         queue.put(len(serialized_data))
 
 
@@ -72,21 +68,18 @@ class Robots:
         self.data_queue = None
         self.command_queue = None
         self.shm = None
-        self.robots = [
-            Glasha(),
-            Sasha(),
-            Masha(),
-            Natasha()
-        ]
+        self.robots = [Glasha(), Sasha(), Masha(), Natasha()]
         self.is_running = False
 
     def connect_to_server(self):
-        BaseManager.register('get_data_queue')
-        BaseManager.register('get_command_queue')
+        BaseManager.register("get_data_queue")
+        BaseManager.register("get_command_queue")
 
         while True:
             try:
-                manager = BaseManager(address=('127.0.0.1', 50000), authkey=b'abracadabra')
+                manager = BaseManager(
+                    address=("127.0.0.1", 50000), authkey=b"abracadabra"
+                )
                 manager.connect()
                 self.data_queue = manager.get_data_queue()  # type: ignore
                 self.command_queue = manager.get_command_queue()  # type: ignore
