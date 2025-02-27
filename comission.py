@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 import threading
 from multiprocessing import Queue
 from multiprocessing.managers import BaseManager
@@ -191,6 +192,7 @@ class CommissionApp(QMainWindow):
         if not self.data_queue.empty():
             size = self.data_queue.get()
             try:
+                st_time = time.time()
                 raw_data = bytes(self.shm.buf[:size]).decode("utf-8")
                 data = json.loads(raw_data)
 
@@ -242,6 +244,8 @@ class CommissionApp(QMainWindow):
                     "aligned_points": aligned_points,
                     "mse": mse,
                 }
+                f_time = time.time() - st_time
+                print(f"{shape_name.capitalize()} processed in: {f_time}s. {'!!!' if f_time > 0.5 else ''}")
                 if len(self.current_results) == 4:
                     winner_shape = min(self.current_results.keys(), key=lambda x: self.current_results[x]["mse"])
                     winner_data = self.current_results[winner_shape]
