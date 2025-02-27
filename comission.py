@@ -1,111 +1,18 @@
 import json
 import sys
 import threading
-
-import numpy as np
-import pyqtgraph as pg
 from multiprocessing import Queue
 from multiprocessing.managers import BaseManager
 from multiprocessing.shared_memory import SharedMemory
-from PyQt5.QtCore import QTimer, Qt
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QLabel
-from scipy.optimize import minimize
-from scipy.signal import medfilt
+
+import numpy as np
+import pyqtgraph as pg
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QLabel, QMainWindow,
+                             QPushButton, QVBoxLayout, QWidget)
 from scipy.spatial.distance import cdist
-from shape import Square, Triangle, Circle, Parallelogram
-from sklearn.decomposition import PCA
 
-
-class ShapeNormalizer:
-    @staticmethod
-    def align_centers(distorted_points):
-        """
-        Выравнивает центры масс искажённой фигуры относительно (0, 0).
-        :param distorted_points:
-        :return:
-        """
-        distorted_center = np.mean(distorted_points, axis=0)
-        return distorted_points - distorted_center
-
-    @staticmethod
-    def smooth_points(points, kernel_size=3):
-        """
-        Применяет медианный фильтр для сглаживания шума в наборе точек.
-        :param points: Массив точек
-        :param kernel_size: Размер окна фильтрации
-        :return: Сглаженные точки
-        """
-        smoothed_points = np.copy(points)
-        smoothed_points[:, 0] = medfilt(points[:, 0], kernel_size)  # Фильтруем по оси X
-        smoothed_points[:, 1] = medfilt(points[:, 1], kernel_size)  # Фильтруем по оси Y
-        return smoothed_points
-
-    @staticmethod
-    def find_rotation_angle(original_points, distorted_points):
-        """
-        Определяет угол поворота искажённой фигуры относительно оригинальной.
-        :param original_points:
-        :param distorted_points:
-        :return:
-        """
-        pca_original = PCA(n_components=2).fit(original_points)
-        pca_distorted = PCA(n_components=2).fit(distorted_points)
-        angle = np.arctan2(pca_distorted.components_[0, 1], pca_distorted.components_[0, 0]) - \
-                np.arctan2(pca_original.components_[0, 1], pca_original.components_[0, 0])
-        return np.degrees(angle)
-
-    def gradient_descent_optimization(self, original_points, distorted_points, initial_angle):
-        """
-        Оптимизация угла с помощью градиентного спуска для минимизации MSE.
-        :param original_points: Оригинальные точки
-        :param distorted_points: Искажённые точки
-        :param initial_angle: Начальный угол, полученный через PCA
-        :return: Оптимизированный угол
-        """
-        def mse(angle):
-            rotated_points = self.rotate_points(distorted_points, angle)
-            return np.mean((original_points - rotated_points) ** 2)
-
-        result = minimize(mse, initial_angle, method="BFGS", options={"disp": False, "maxiter": 10})
-        return result.x[0] if result.success else initial_angle
-
-    @staticmethod
-    def rotate_points(points, angle):
-        """
-        Поворачивает точки на заданный угол.
-        :param points:
-        :param angle:
-        :return:
-        """
-        theta = np.radians(angle)
-        rotation_matrix = np.array([
-            [np.cos(theta), -np.sin(theta)],
-            [np.sin(theta), np.cos(theta)]
-        ])
-        return np.dot(points, rotation_matrix.T)
-
-    def normalize(self, original_points, distorted_points):
-        """
-        Нормализует искажённую фигуру (выравнивание и поворот).
-        :param original_points:
-        :param distorted_points:
-        :return:
-        """
-        aligned_points = self.align_centers(distorted_points)
-
-        # Применяем сглаживание перед PCA
-        smoothed_points = self.smooth_points(aligned_points)
-
-        # Если точки на фигуре присутствуют, находим угол
-        initial_angle = self.find_rotation_angle(original_points, smoothed_points)
-
-        # Оптимизация угла с помощью градиентного спуска
-        optimized_angle = self.gradient_descent_optimization(original_points, smoothed_points, initial_angle)
-
-        # Поворот точек с использованием оптимизированного угла
-        rotated_points = self.rotate_points(smoothed_points, -optimized_angle)
-
-        return rotated_points
+from shape import Circle, Parallelogram, Square, Triangle
 
 
 class ShapeComparator:
@@ -133,16 +40,46 @@ class ShapeComparator:
         squared_errors = np.sum((closest_points - distorted_points) ** 2, axis=1)
         return np.mean(squared_errors)
 
-    def compare(self, original_points, distorted_points):
+
+class ICP:
+    @staticmethod
+    def icp_align(original_points, distorted_points, max_iterations=50, mse_threshold=0.10):
         """
-        Сравнивает две фигуры и возвращает MSE.
-        :param original_points:
-        :param distorted_points:
-        :return:
+        Выравнивает искажённые точки относительно оригинальных с использованием ICP.
+        :param original_points: Оригинальные точки (N x 2).
+        :param distorted_points: Искажённые точки (M x 2).
+        :param max_iterations: Максимальное число итераций.
+        :param mse_threshold: Порог MSE для остановки.
+        :return: Выровненные точки и MSE.
         """
-        # normalized_points = distorted_points
-        normalized_points = ShapeNormalizer().normalize(original_points, distorted_points)
-        return self.calculate_mse(original_points, normalized_points)
+        mse = float("inf")
+        aligned_points = distorted_points.copy()
+
+        for iteration in range(max_iterations):
+            closest_points = ShapeComparator.find_closest_points(original_points, aligned_points)
+
+            mse = ShapeComparator.calculate_mse(original_points, aligned_points)
+
+            if mse < mse_threshold:
+                break
+
+            centroid_original = np.mean(closest_points, axis=0)
+            centroid_distorted = np.mean(aligned_points, axis=0)
+
+            centered_original = closest_points - centroid_original
+            centered_distorted = aligned_points - centroid_distorted
+
+            H = np.dot(centered_distorted.T, centered_original)
+
+            U, _, Vt = np.linalg.svd(H)
+
+            R = np.dot(Vt.T, U.T)
+
+            t = centroid_original - np.dot(R, centroid_distorted)
+
+            aligned_points = np.dot(aligned_points, R.T) + t
+
+        return aligned_points, mse
 
 
 class CommissionApp(QMainWindow):
@@ -150,6 +87,10 @@ class CommissionApp(QMainWindow):
         super().__init__()
         self.data_queue = Queue()
         self.command_queue = Queue()
+        self.manager = None
+        self.shm = None
+        self.server_thread = None
+
         self.setWindowTitle("Комиссия: Фестиваль рисунков")
         self.setGeometry(100, 100, 1600, 900)
 
@@ -192,7 +133,7 @@ class CommissionApp(QMainWindow):
         self.winner_plot_widget.setXRange(-15, 15)
         self.winner_plot_widget.setYRange(-15, 15)
         self.winner_plot_widget.showGrid(x=True, y=True)
-        self.winner_plot_widget.enableAutoRange()  # Включаем автомасштабирование
+        self.winner_plot_widget.enableAutoRange()
         self.winner_container.addWidget(self.winner_plot_widget)
 
         self.winner_metric_label = QLabel("Победитель: -\nMSE: -")
@@ -205,17 +146,17 @@ class CommissionApp(QMainWindow):
         self.main_layout.addLayout(self.buttons_layout)
 
         self.start_button = QPushButton("Старт")
-        self.start_button.clicked.connect(self.start_process) # type: ignore
+        self.start_button.clicked.connect(self.start_process)  # type: ignore
         self.buttons_layout.addWidget(self.start_button)
 
         self.stop_button = QPushButton("Стоп")
-        self.stop_button.clicked.connect(self.stop_process) # type: ignore
+        self.stop_button.clicked.connect(self.stop_process)  # type: ignore
         self.buttons_layout.addWidget(self.stop_button)
 
         self.setup_manager()
 
         self.timer = QTimer()
-        self.timer.timeout.connect(self.update_figures) # type: ignore
+        self.timer.timeout.connect(self.update_figures)  # type: ignore
         self.timer.start(1)
 
     def setup_manager(self):
@@ -223,7 +164,7 @@ class CommissionApp(QMainWindow):
         BaseManager.register('get_command_queue', callable=lambda: self.command_queue)
 
         self.manager = BaseManager(address=('127.0.0.1', 50000), authkey=b'abracadabra')
-        self.shm = SharedMemory(name="robot_memory", create=True, size=104857600)
+        self.shm = SharedMemory(name="robot_memory", create=True, size=1048576)
 
         self.server_thread = threading.Thread(target=self.start_server)
         self.server_thread.daemon = True
@@ -256,73 +197,104 @@ class CommissionApp(QMainWindow):
                 shape_name = data["shape"]
                 points = data["points"]
 
-                print(f"Получены данные: {shape_name}, точек: {len(points)}")
-
                 points = np.array(points, dtype=np.float64)
 
                 index = {"square": 0, "triangle": 1, "circle": 2, "parallelogram": 3}[shape_name]
-                color = [(0, 0, 255), (0, 255, 0), (255, 0, 0), (255, 0, 255)][index]
 
-                # Отрисовка и инициализация фигуры
                 original_shape = self.get_original_shape(shape_name)
-                original_shape.generate_reference()  # Генерация точек
+                original_shape.generate_reference()
                 original_points = original_shape.points
 
-                # Нормализация и сглаживание точек
-                normalized_points = ShapeNormalizer().normalize(original_points, points)
+                aligned_points, mse = ICP.icp_align(original_points, points)
 
-                # Отрисовка оригинальной фигуры
                 self.figure_widgets[index].clear()
-                self.figure_widgets[index].plot(original_points[:, 0], original_points[:, 1], pen=None, symbol='o',
-                                                symbolBrush=color, name="Оригинал")
+                self.figure_widgets[index].plot(
+                    original_points[:, 0],
+                    original_points[:, 1],
+                    pen=None,
+                    symbol='o',
+                    symbolBrush=(0, 0, 255),
+                    name="Оригинал"
+                )
 
-                # Отрисовка искажённой фигуры
-                self.figure_widgets[index].plot(points[:, 0], points[:, 1], pen=None, symbol='p', symbolBrush=color,
-                                                name="Робот")
+                self.figure_widgets[index].plot(
+                    points[:, 0],
+                    points[:, 1],
+                    pen=None,
+                    symbol='x',
+                    symbolBrush=(255, 0, 0),
+                    name="Искажённые"
+                )
 
-                # Отрисовка нормализованной фигуры
-                self.figure_widgets[index].plot(normalized_points[:, 0], normalized_points[:, 1], pen=None, symbol="x",
-                                                symbolBrush=color, name="Нормированный")
+                self.figure_widgets[index].plot(
+                    aligned_points[:, 0],
+                    aligned_points[:, 1],
+                    pen=None,
+                    symbol='+',
+                    symbolBrush=(0, 255, 0),
+                    name="Нормализованные"
+                )
 
-                # Вычисление MSE
-                mse = ShapeComparator().compare(original_points, points)
                 self.metric_labels[index].setText(f"{self.shape_names[index]}\nMSE: {mse:.4f}")
                 self.current_results[shape_name] = {
                     "original_points": original_points,
                     "distorted_points": points,
+                    "aligned_points": aligned_points,
                     "mse": mse,
                 }
                 if len(self.current_results) == 4:
                     winner_shape = min(self.current_results.keys(), key=lambda x: self.current_results[x]["mse"])
-                    # Обновляем победителя
+                    winner_data = self.current_results[winner_shape]
                     self.update_winner(
                         winner_shape,
-                        self.current_results[winner_shape]["original_points"],
-                        self.current_results[winner_shape]["distorted_points"],
-                        self.current_results[winner_shape]["mse"],
+                        winner_data,
                     )
                     self.current_results = {}
-
             except Exception as e:
                 print(f"Ошибка при обработке данных: {e}")
             else:
                 self.command_queue.put("next")
 
-    def update_winner(self, shape_name, original_points, distorted_points, mse):
+    def update_winner(self, shape_name, figure_data):
         """
         Обновляет виджет победителя.
         :param shape_name:
-        :param original_points:
-        :param distorted_points:
-        :param mse:
+        :param figure_data:
         :return:
         """
+        original_points = figure_data["original_points"]
+        distorted_points = figure_data["distorted_points"]
+        aligned_points = figure_data["aligned_points"]
+        mse = figure_data["mse"]
+
         self.winner_plot_widget.clear()
 
-        self.winner_plot_widget.plot(original_points[:, 0], original_points[:, 1], pen=None, symbol='o', symbolBrush=(0, 0, 0), name="Оригинал")
+        self.winner_plot_widget.plot(
+            original_points[:, 0],
+            original_points[:, 1],
+            pen=None,
+            symbol='o',
+            symbolBrush=(0, 0, 255),
+            name="Оригинал"
+        )
 
-        self.winner_plot_widget.plot(distorted_points[:, 0], distorted_points[:, 1], pen=None, symbol='p', symbolBrush=(255, 0, 0), name="Робот")
+        self.winner_plot_widget.plot(
+            distorted_points[:, 0],
+            distorted_points[:, 1],
+            pen=None,
+            symbol='x',
+            symbolBrush=(255, 0, 0),
+            name="Искажённые"
+        )
 
+        self.winner_plot_widget.plot(
+            aligned_points[:, 0],
+            aligned_points[:, 1],
+            pen=None,
+            symbol='+',
+            symbolBrush=(0, 255, 0),
+            name="Нормализованные"
+        )
         self.winner_metric_label.setText(f"Победитель: {shape_name}\nMSE: {mse:.4f}")
 
     def get_original_shape(self, shape_name):
@@ -340,7 +312,6 @@ class CommissionApp(QMainWindow):
                 return Circle()
             case "parallelogram":
                 return Parallelogram()
-        return None
 
     def closeEvent(self, event):
         """

@@ -1,7 +1,7 @@
-import json
 from abc import ABC, abstractmethod
-import numpy as np
+
 import matplotlib.pyplot as plt
+import numpy as np
 
 NUM_POINTS = 1000
 
@@ -19,7 +19,6 @@ class Shape(ABC):
             "shape": self.name,
             "points": self.points.tolist() if isinstance(self.points, np.ndarray) else self.points
         }
-        print(json.dumps(data, indent=4))
 
     def plot(self, filename=None):
         plt.figure(figsize=(6, 6))
@@ -101,5 +100,4 @@ if __name__ == "__main__":
     ]
     for shape in shapes:
         shape.generate_reference()
-        # shape.save_to_json()
         shape.plot()

@@ -1,9 +1,11 @@
 import json
 import time
-import numpy as np
 from multiprocessing.managers import BaseManager
 from multiprocessing.shared_memory import SharedMemory
-from shape import Square, Triangle, Circle, Parallelogram
+
+import numpy as np
+
+from shape import Circle, Parallelogram, Square, Triangle
 
 GENERATION_INTERVAL = 2
 
@@ -23,20 +25,26 @@ class Robot:
         self.points = self.thin_points(self.points, percent=10)
         self.points = self.add_noise(self.points, scale=0.3)
         self.points = self.rotate_points(self.points, angle=np.random.uniform(0, 360))
-        self.points = self.shift_points(self.points, shift_x=np.random.uniform(-50, 50),
-                                       shift_y=np.random.uniform(-50, 50))
+        self.points = self.shift_points(
+            self.points,
+            shift_x=np.random.uniform(-50, 50),
+            shift_y=np.random.uniform(-50, 50)
+        )
 
-    def thin_points(self, points, percent=10):
+    @staticmethod
+    def thin_points(points, percent=10):
         num_points = len(points)
         num_to_remove = int(num_points * percent / 100)
         indices_to_remove = np.random.choice(num_points, num_to_remove, replace=False)
         return np.delete(points, indices_to_remove, axis=0)
 
-    def add_noise(self, points, scale=0.3):
+    @staticmethod
+    def add_noise(points, scale=0.3):
         noise = np.random.normal(0, scale, points.shape)
         return points + noise
 
-    def rotate_points(self, points, angle):
+    @staticmethod
+    def rotate_points(points, angle):
         theta = np.radians(angle)
         rotation_matrix = np.array([
             [np.cos(theta), -np.sin(theta)],
@@ -44,7 +52,8 @@ class Robot:
         ])
         return np.dot(points, rotation_matrix.T)
 
-    def shift_points(self, points, shift_x, shift_y):
+    @staticmethod
+    def shift_points(points, shift_x, shift_y):
         shifted_points = points + np.array([shift_x, shift_y])
         return np.clip(shifted_points, -100, 100)
 
@@ -60,6 +69,9 @@ class Robot:
 
 class Robots:
     def __init__(self):
+        self.data_queue = None
+        self.command_queue = None
+        self.shm = None
         self.robots = [
             Glasha(),
             Sasha(),
@@ -76,8 +88,8 @@ class Robots:
             try:
                 manager = BaseManager(address=('127.0.0.1', 50000), authkey=b'abracadabra')
                 manager.connect()
-                self.data_queue = manager.get_data_queue()
-                self.command_queue = manager.get_command_queue()
+                self.data_queue = manager.get_data_queue()  # type: ignore
+                self.command_queue = manager.get_command_queue()  # type: ignore
                 self.shm = SharedMemory(name="robot_memory")
                 break
             except (ConnectionRefusedError, FileNotFoundError):
@@ -102,18 +114,16 @@ class Robots:
                         robot.generate_distorted_shape()
                         robot.send_data(self.data_queue, self.shm)
 
-                        # Ждём команду "next" от Comission
                         while True:
                             if not self.command_queue.empty():
                                 command = self.command_queue.get()
                                 if command == "next":
-                                    break  # Продолжаем отправку данных
+                                    break
                                 elif command == "stop":
                                     self.is_running = False
                                     break
                             time.sleep(0.01)
 
-                    # Пауза между итерациями
                     time.sleep(GENERATION_INTERVAL)
         except (KeyboardInterrupt, OSError):
             print("Завершение работы Robots...")
